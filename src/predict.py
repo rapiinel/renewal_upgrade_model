@@ -26,9 +26,10 @@ def load_model(model_location: str):
 def get_data(data_location: str, x_col: DataframeParams = DataframeParams()):
     """Loading actual dataset that needs predicting"""
     df = pd.read_csv(data_location)
+    df_orig = df.reset_index(drop=True).copy()
     df = df[x_col.X_columns].copy()
 
-    return df
+    return df, df_orig
 
 
 @flow
@@ -46,7 +47,7 @@ def main_flow(location: Location = Location()):
     """
 
     model = load_model(location.model)
-    df = get_data(location.data_process_path + "actual_dataset.csv")
+    df, df_orig = get_data(location.data_process_path + "actual_dataset.csv")
     print(df.head())
     # print(location.model)
     # print(type(model))
@@ -62,20 +63,47 @@ def main_flow(location: Location = Location()):
     print(result_logproba)
     print("===========================================")
 
-    df["result"] = result
+    df_orig["result"] = result
+    df_orig["result"] = df_orig["result"].map(
+        {0: "possible churn", 1: "Most likely to renew/upgrade"}
+    )
     result_proba = pd.DataFrame(
-        result_proba, columns=["result proba_churn", "result proba_renew"]
+        result_proba, columns=["Churn Likelihood", "Renew/Upgrade Likelihood"]
     )
-    df = pd.concat([df, result_proba], axis=1)
-    result_logproba = pd.DataFrame(
-        result_proba,
-        columns=["result log proba_churn", "result log proba_renew"],
+    df_orig = pd.concat(
+        [
+            df_orig[
+                [
+                    "Salesforce Account Id",
+                    "start date",
+                    "end date",
+                    "target",
+                    "result",
+                ]
+            ],
+            result_proba,
+        ],
+        axis=1,
     )
-    df = pd.concat([df, result_proba], axis=1)
+
+    # result_logproba = pd.DataFrame(
+    #     result_logproba,
+    #     columns=["result log proba_churn", "result log proba_renew"],
+    # )
+    # df_orig = pd.concat([df_orig, result_logproba], axis=1)
     # df['result proba_churn'], df['result proba_renew'] =
     # df['result log proba_churn'], df['result log proba_renew'] = result_logproba
 
-    df.to_csv(location.actual_predicted, index=False)
+    df_orig.rename(
+        columns={
+            "start date": "deal activated date",
+            "end date": "deal expire date",
+            "target": "current status",
+            "result": "prediction",
+        },
+        inplace=True,
+    )
+    df_orig.to_csv(location.actual_predicted, index=False)
     # process(location, process_config)
     # train(location, model_params)
     # run_notebook(location)
