@@ -3,6 +3,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from prefect import flow, task
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
 
@@ -12,7 +13,6 @@ from config import Location, ModelParams
 @task
 def get_processed_data(data_location: str):
     """Get processed data from a specified location
-
     Parameters
     ----------
     data_location : str
@@ -26,7 +26,6 @@ def train_model(
     model_params: ModelParams, X_train: pd.DataFrame, y_train: pd.Series
 ):
     """Train the model
-
     Parameters
     ----------
     model_params : ModelParams
@@ -36,7 +35,9 @@ def train_model(
     y_train : pd.Series
         Label for training
     """
-    grid = GridSearchCV(SVC(), model_params.dict(), refit=True, verbose=3)
+    grid = GridSearchCV(
+        LogisticRegression(), model_params.dict(), refit=True, verbose=3
+    )
     grid.fit(X_train, y_train)
     return grid
 
@@ -44,7 +45,6 @@ def train_model(
 @task
 def predict(grid: GridSearchCV, X_test: pd.DataFrame):
     """_summary_
-
     Parameters
     ----------
     grid : GridSearchCV
@@ -57,7 +57,6 @@ def predict(grid: GridSearchCV, X_test: pd.DataFrame):
 @task
 def save_model(model: GridSearchCV, save_path: str):
     """Save model to a specified location
-
     Parameters
     ----------
     model : GridSearchCV
@@ -69,7 +68,6 @@ def save_model(model: GridSearchCV, save_path: str):
 @task
 def save_predictions(predictions: np.array, save_path: str):
     """Save predictions to a specified location
-
     Parameters
     ----------
     predictions : np.array
@@ -81,10 +79,9 @@ def save_predictions(predictions: np.array, save_path: str):
 @flow
 def train(
     location: Location = Location(),
-    svc_params: ModelParams = ModelParams(),
+    model_params: ModelParams = ModelParams(),
 ):
     """Flow to train the model
-
     Parameters
     ----------
     location : Location, optional
@@ -92,8 +89,17 @@ def train(
     svc_params : ModelParams, optional
         Configurations for training the model, by default ModelParams()
     """
-    data = get_processed_data(location.data_process)
-    model = train_model(svc_params, data["X_train"], data["y_train"])
+    print(
+        "=====================================processing data================================="
+    )
+    data = get_processed_data(location.data_process_pkl)
+    print(
+        "=====================================training model==================================="
+    )
+    model = train_model(model_params, data["X_train"], data["y_train"])
+    print(
+        "======================================predicting===================================="
+    )
     predictions = predict(model, data["X_test"])
     save_model(model, save_path=location.model)
     save_predictions(predictions, save_path=location.data_final)
