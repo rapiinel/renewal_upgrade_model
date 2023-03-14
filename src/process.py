@@ -381,7 +381,7 @@ def get_OneHotEncoder(data: pd.DataFrame):
         aggfunc="sum",
     ).reset_index(drop=False)
 
-    return data
+    return data, ohe, ohe_dropout_stage
 
 
 def data_checker(row):
@@ -565,6 +565,77 @@ def get_attorney_data(data_location: str, df: pd.DataFrame):
     return final_df
 
 
+@task
+def dataset_segmentation(
+    df: pd.DataFrame, column_reference: Location = Location()
+):
+    """This function will segment the dataset into training and actual"""
+    # checking if the generated dataset still has the correct columns
+    column_reference_df = pd.read_excel(
+        column_reference.column_reference, sheet_name="Sheet1"
+    )
+    if df.shape[1] != len(column_reference_df):
+        raise ValueError(
+            "The column reference does not match the dataframe, please check"
+        )
+
+    # satisfying assumptions
+    df = implementing_eda_assumptions(df)
+
+    # segmenting training and actual dataset
+    # training dataset
+    training_dataset = df[
+        df["target"].isin(["expired, with 3 months grace period", "Renewal"])
+    ].copy()
+    training_dataset["target"].replace(
+        "expired, with 3 months grace period", "churn", inplace=True
+    )
+    training_dataset["target"].replace("Renewal", "active", inplace=True)
+    training_dataset["target"] = training_dataset["target"].map(
+        {"churn": 0, "active": 1}
+    )
+
+    # actual dataset
+    actual_dataset = df[df["target"].isin(["expired", "active"])]
+
+    return training_dataset, actual_dataset
+
+
+def implementing_eda_assumptions(df: pd.DataFrame):
+    """This function will implement changes to the dataset that will satisfy the logistic regression assumptions"""
+    # column_reference_df = pd.read_excel(column_reference.column_reference, sheet_name='Sheet1')
+    # if df.shape[1] != len(column_reference):
+    # raise ValueError("The column reference does not match the dataframe, please check")
+    # for col in ['start date', 'end date']:
+    #     df[col] = pd.to_datetime(df[col])
+    # df = df[(df['start date'] < pd.to_datetime('2023-1-1'))].reset_index(drop=True).copy()
+    # df['target'].replace('Renewal', 'Renewed_Upgraded', inplace=True)
+
+    # # this will remove newly expired deals, the production model should consider the newly expire deals and active deals
+    # df = df[df['target'] != 'expired'].reset_index(drop=True).copy()
+    # df['target'].replace('expired, with 3 months grace period', 'churn', inplace= True)
+    # df['target'].replace('Renewed_Upgraded', 'active', inplace=True)
+    # df['target'] = df['target'].map({'churn':0, 'active':1}) # label encoding the target variable
+
+    # satisfying the assumption 2
+    df.drop(
+        columns=[
+            "Matched Attorneys Viewed Cases",
+            "Responses Avg Time to Respond In Hours",
+        ],
+        inplace=True,
+    )
+    # satisfying the assumption 3
+    df.drop(
+        columns=["oppty_count", "Responses Cases with Engaged Response Count"],
+        inplace=True,
+    )
+    # satisfying the assumption 4
+    df.drop(columns=["Less than 1 year"], inplace=True)
+
+    return df
+
+
 @flow
 def process(
     location: Location = Location(),
@@ -584,7 +655,7 @@ def process(
 
     oppty_data = get_raw_data(location.data_sf_export_oppty)
     oppty_processed = oppty_preprocess(oppty_data)
-    oppty_encoded = get_OneHotEncoder(oppty_processed)
+    oppty_encoded, ohe, ohe_dropout_stage = get_OneHotEncoder(oppty_processed)
 
     combined_df = combine_deal_oppty(deal_processed, oppty_encoded)
     combined_df.to_csv(
@@ -596,6 +667,14 @@ def process(
         location.data_raw + "/looker/*.csv", combined_df
     )
     df_atty.to_csv(location.data_process + "dataset.csv", index=False)
+
+    training_dataset, actual_dataset = dataset_segmentation(df_atty)
+    training_dataset.to_csv(
+        location.data_process + "training_dataset.csv", index=False
+    )
+    actual_dataset.to_csv(
+        location.data_process + "actual_dataset.csv", index=False
+    )
 
     # processed = drop_columns(data, config.drop_columns)
     # X, y = get_X_y(processed, config.label)

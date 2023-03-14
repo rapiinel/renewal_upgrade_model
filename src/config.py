@@ -45,6 +45,7 @@ class Location(BaseModel):
 
     data_sf_export_deal: str = data_raw + "sf_export - deals.csv"
     data_sf_export_oppty: str = data_raw + "sf_export - opportunity.csv"
+    column_reference: str = data_raw + "column_reference.xlsx"
 
 
 class ProcessConfig(BaseModel):
