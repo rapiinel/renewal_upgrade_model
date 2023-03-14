@@ -19,7 +19,7 @@ def run_notebook(location: Location = Location()):
     nb = notebook.execute_notebook(
         location.input_notebook,
         parameters={
-            "data_process": location.data_process,
+            "data_process": location.data_process_pkl,
             "data_final": location.data_final,
         },
     )

@@ -9,10 +9,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from dateutil.relativedelta import relativedelta
+from imblearn.under_sampling import ClusterCentroids
 from pandarallel import pandarallel
 from prefect import flow, task
 from sklearn import preprocessing
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
 
 from config import DataframeParams, Location, ProcessConfig
 
@@ -47,7 +49,9 @@ def drop_columns(data: pd.DataFrame, columns: list):
 
 
 @task
-def get_X_y(data: pd.DataFrame, label: str):
+def get_X_y(
+    data: pd.DataFrame, label: str, x_col: DataframeParams = DataframeParams()
+):
     """Get features and label
 
     Parameters
@@ -57,9 +61,17 @@ def get_X_y(data: pd.DataFrame, label: str):
     label : str
         Name of the label
     """
-    X = data.drop(columns=label)
+    X = data[x_col.X_columns]
     y = data[label]
     return X, y
+
+
+def balance_dataset(X: pd.DataFrame, y: pd.Series):
+    """balancing the target variables"""
+    cc = ClusterCentroids(random_state=0)
+    X_resampled, y_resampled = cc.fit_resample(X, y)
+
+    return X_resampled, y_resampled
 
 
 @task
@@ -75,6 +87,7 @@ def split_train_test(X: pd.DataFrame, y: pd.DataFrame, test_size: int):
     test_size : int
         Size of the test set
     """
+    X, y = balance_dataset(X, y)
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=test_size, random_state=0
     )
@@ -567,7 +580,9 @@ def get_attorney_data(data_location: str, df: pd.DataFrame):
 
 @task
 def dataset_segmentation(
-    df: pd.DataFrame, column_reference: Location = Location()
+    df: pd.DataFrame,
+    column_reference: Location = Location(),
+    x_col: DataframeParams = DataframeParams(),
 ):
     """This function will segment the dataset into training and actual"""
     # checking if the generated dataset still has the correct columns
@@ -581,6 +596,10 @@ def dataset_segmentation(
 
     # satisfying assumptions
     df = implementing_eda_assumptions(df)
+    scaler = MinMaxScaler()
+    df.loc[:, x_col.X_columns] = scaler.fit_transform(
+        df.loc[:, x_col.X_columns]
+    )
 
     # segmenting training and actual dataset
     # training dataset
@@ -658,28 +677,27 @@ def process(
     oppty_encoded, ohe, ohe_dropout_stage = get_OneHotEncoder(oppty_processed)
 
     combined_df = combine_deal_oppty(deal_processed, oppty_encoded)
-    combined_df.to_csv(
-        location.data_process + "combined_deal_oppty.csv", index=False
-    )
+    # combined_df.to_csv(
+    #     location.data_process + "combined_deal_oppty.csv", index=False
+    # )
 
     # processing attorney stats
     df_atty = get_attorney_data(
         location.data_raw + "/looker/*.csv", combined_df
     )
-    df_atty.to_csv(location.data_process + "dataset.csv", index=False)
+    # df_atty.to_csv(location.data_process + "dataset.csv", index=False)
 
     training_dataset, actual_dataset = dataset_segmentation(df_atty)
-    training_dataset.to_csv(
-        location.data_process + "training_dataset.csv", index=False
-    )
+    # training_dataset.to_csv(
+    #     location.data_process + "training_dataset.csv", index=False
+    # )
     actual_dataset.to_csv(
-        location.data_process + "actual_dataset.csv", index=False
+        location.data_process_path + "actual_dataset.csv", index=False
     )
 
-    # processed = drop_columns(data, config.drop_columns)
-    # X, y = get_X_y(processed, config.label)
-    # split_data = split_train_test(X, y, config.test_size)
-    # save_processed_data(split_data, location.data_process)
+    X, y = get_X_y(training_dataset, config.label)
+    split_data = split_train_test(X, y, config.test_size)
+    save_processed_data(split_data, location.data_process_pkl)
 
 
 if __name__ == "__main__":
