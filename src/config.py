@@ -45,6 +45,9 @@ class Location(BaseModel):
     model: str = folder_link + "models/model.pkl"
     input_notebook: str = folder_link + "notebooks/analyze_results.ipynb"
     output_notebook: str = folder_link + "notebooks/results.ipynb"
+    actual_dataset_for_prediction: str = (
+        folder_link + data_process_path + "actual_dataset.csv"
+    )
 
     data_sf_export_deal: str = data_raw + "sf_export - deals.csv"
     data_sf_export_oppty: str = data_raw + "sf_export - opportunity.csv"
